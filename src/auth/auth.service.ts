@@ -22,7 +22,7 @@ export class AuthService {
       user = newUser;
     }
 
-    const sessionToken = await this.sessionService.createSession(user.id);
+    const sessionToken = await this.sessionService.createSession(user.username);
 
     return {
       user,

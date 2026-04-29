@@ -21,14 +21,14 @@ export class AuthGuard implements CanActivate {
     }
 
     const token = authHeader.split(' ')[1];
-    const userId = await this.sessionService.getSession(token);
+    const username = await this.sessionService.getSession(token);
 
-    if (!userId) {
+    if (!username) {
       throw new UnauthorizedException('Invalid or expired session');
     }
 
     const user = await this.db.query.users.findFirst({
-      where: eq(schema.users.id, userId),
+      where: eq(schema.users.username, username),
     });
 
     if (!user) {

@@ -1,4 +1,4 @@
-import { WebSocketGateway, WebSocketServer, OnGatewayConnection, OnGatewayDisconnect } from '@nestjs/websockets';
+import { WebSocketGateway, WebSocketServer, OnGatewayConnection, OnGatewayDisconnect, SubscribeMessage, MessageBody, ConnectedSocket } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { SessionService } from '../session/session.service';
 import { RoomsService } from '../rooms/rooms.service';
@@ -24,9 +24,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (channel === 'internal_events') {
         const { type, roomId, payload } = JSON.parse(message);
         if (type === 'message:new') {
-          this.server.to(roomId.toString()).emit('message:new', payload);
+          this.server.to(roomId).emit('message:new', payload);
         } else if (type === 'room:deleted') {
-          this.server.to(roomId.toString()).emit('room:deleted', payload);
+          this.server.to(roomId).emit('room:deleted', payload);
         }
       }
     });
@@ -35,51 +35,59 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleConnection(client: Socket) {
     try {
       const token = client.handshake.query.token as string;
-      const roomIdStr = client.handshake.query.roomId as string;
+      const roomId = client.handshake.query.roomId as string;
 
-      if (!token || !roomIdStr) {
+      if (!token || !roomId) {
         client.disconnect(true);
         return;
       }
 
-      const userId = await this.sessionService.getSession(token);
-      if (!userId) {
+      const username = await this.sessionService.getSession(token);
+      if (!username) {
         client.disconnect(true);
         return;
       }
 
-      const roomId = parseInt(roomIdStr, 10);
       const room = await this.roomsService.findOne(roomId).catch(() => null);
       if (!room) {
         client.disconnect(true);
         return;
       }
 
-      client.data.userId = userId;
+      client.data.username = username;
       client.data.roomId = roomId;
 
-      await client.join(roomId.toString());
+      await client.join(roomId);
 
-      await this.redisClient.sadd(`room:${roomId}:users`, userId);
+      await this.redisClient.sadd(`room:${roomId}:users`, username);
+      const activeUsers = await this.redisClient.smembers(`room:${roomId}:users`);
 
-      client.emit('room:joined', { roomId, userId });
-      this.server.to(roomId.toString()).emit('room:user_joined', { roomId, userId });
+      client.emit('room:joined', { activeUsers });
+      this.server.to(roomId).emit('room:user_joined', { username, activeUsers });
 
     } catch (e) {
       client.disconnect(true);
     }
   }
 
+  @SubscribeMessage('room:leave')
+  async handleRoomLeave(@ConnectedSocket() client: Socket) {
+    await this.handleDisconnect(client);
+    client.disconnect(true);
+  }
+
   async handleDisconnect(client: Socket) {
-    const { userId, roomId } = client.data;
-    if (userId && roomId) {
-      const roomSockets = await this.server.in(roomId.toString()).fetchSockets();
-      const hasOtherSockets = roomSockets.some(s => s.data.userId === userId && s.id !== client.id);
+    const { username, roomId } = client.data;
+    if (username && roomId) {
+      const roomSockets = await this.server.in(roomId).fetchSockets();
+      const hasOtherSockets = roomSockets.some(s => s.data.username === username && s.id !== client.id);
 
       if (!hasOtherSockets) {
-        await this.redisClient.srem(`room:${roomId}:users`, userId);
+        await this.redisClient.srem(`room:${roomId}:users`, username);
       }
-      this.server.to(roomId.toString()).emit('room:user_left', { roomId, userId });
+      
+      const activeUsers = await this.redisClient.smembers(`room:${roomId}:users`);
+      this.server.to(roomId).emit('room:user_left', { username, activeUsers });
     }
   }
 }

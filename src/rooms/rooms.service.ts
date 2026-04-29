@@ -13,15 +13,15 @@ export class RoomsService {
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {}
 
-  private async getActiveUsersCount(roomId: number): Promise<number> {
-    const count = await this.redisClient.scard(`room:${roomId}:users`);
-    return count;
+  private async getActiveUsers(roomId: string): Promise<string[]> {
+    const users = await this.redisClient.smembers(`room:${roomId}:users`);
+    return users;
   }
 
-  async createRoom(name: string, userId: number) {
+  async createRoom(name: string, username: string) {
     const [room] = await this.db.insert(schema.rooms).values({
       name,
-      createdBy: userId,
+      createdBy: username,
     }).returning();
     
     return { ...room, activeUsers: 0 };
@@ -33,14 +33,14 @@ export class RoomsService {
     });
 
     const roomsWithCounts = await Promise.all(rooms.map(async (room) => {
-      const activeUsers = await this.getActiveUsersCount(room.id);
-      return { ...room, activeUsers };
+      const activeUsers = await this.getActiveUsers(room.id);
+      return { ...room, activeUsers: activeUsers.length };
     }));
 
     return roomsWithCounts;
   }
 
-  async findOne(id: number) {
+  async findOne(id: string) {
     const room = await this.db.query.rooms.findFirst({
       where: eq(schema.rooms.id, id),
     });
@@ -49,11 +49,11 @@ export class RoomsService {
       throw new NotFoundException('Room not found');
     }
 
-    const activeUsers = await this.getActiveUsersCount(room.id);
-    return { ...room, activeUsers };
+    const activeUsers = await this.getActiveUsers(room.id);
+    return { ...room, activeUsers: activeUsers.length };
   }
 
-  async deleteRoom(id: number, userId: number) {
+  async deleteRoom(id: string, username: string) {
     const room = await this.db.query.rooms.findFirst({
       where: eq(schema.rooms.id, id),
     });
@@ -62,7 +62,7 @@ export class RoomsService {
       throw new NotFoundException('Room not found');
     }
 
-    if (room.createdBy !== userId) {
+    if (room.createdBy !== username) {
       throw new ForbiddenException('You can only delete rooms you created');
     }
 
@@ -71,13 +71,13 @@ export class RoomsService {
     await this.redisClient.publish('internal_events', JSON.stringify({
       type: 'room:deleted',
       roomId: id,
-      payload: { roomId: id }
+      payload: { message: 'Room deleted' }
     }));
 
-    return { deleted: true, roomId: id };
+    return { message: 'Room deleted' };
   }
 
-  async getMessages(roomId: number, before?: number) {
+  async getMessages(roomId: string, before?: string) {
     const limit = 50; 
     
     const messages = await this.db.query.messages.findMany({
@@ -91,7 +91,7 @@ export class RoomsService {
     return messages;
   }
 
-  async createMessage(roomId: number, userId: number, content: string) {
+  async createMessage(roomId: string, username: string, content: string) {
     const trimmedContent = content.trim();
 
     const room = await this.db.query.rooms.findFirst({
@@ -104,7 +104,7 @@ export class RoomsService {
 
     const [message] = await this.db.insert(schema.messages).values({
       roomId,
-      userId,
+      username,
       content: trimmedContent,
     }).returning();
 
