@@ -7,5 +7,6 @@ import { SessionModule } from '../session/session.module';
   imports: [SessionModule],
   controllers: [RoomsController],
   providers: [RoomsService],
+  exports: [RoomsService],
 })
 export class RoomsModule {}

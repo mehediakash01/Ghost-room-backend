@@ -67,6 +67,13 @@ export class RoomsService {
     }
 
     await this.db.delete(schema.rooms).where(eq(schema.rooms.id, id));
+
+    await this.redisClient.publish('internal_events', JSON.stringify({
+      type: 'room:deleted',
+      roomId: id,
+      payload: { roomId: id }
+    }));
+
     return { deleted: true, roomId: id };
   }
 
@@ -100,6 +107,12 @@ export class RoomsService {
       userId,
       content: trimmedContent,
     }).returning();
+
+    await this.redisClient.publish('internal_events', JSON.stringify({
+      type: 'message:new',
+      roomId,
+      payload: message
+    }));
 
     return message;
   }
