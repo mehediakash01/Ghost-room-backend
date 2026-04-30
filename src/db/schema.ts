@@ -1,7 +1,7 @@
 import { pgTable, varchar, text, timestamp } from 'drizzle-orm/pg-core';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
-const generateId = (prefix: string) => `${prefix}_${uuidv4().replace(/-/g, '').substring(0, 10)}`;
+const generateId = (prefix: string) => `${prefix}_${randomUUID().replace(/-/g, '').substring(0, 10)}`;
 
 export const users = pgTable('users', {
   id: varchar('id', { length: 255 }).$defaultFn(() => generateId('usr')).primaryKey(),
